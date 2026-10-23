@@ -1,0 +1,26 @@
+{
+  "name": "fittrack-server",
+  "version": "1.0.0",
+  "description": "FitTrack backend REST API",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "seed": "node src/seeds/seedRunner.js",
+    "test": "node --test src/tests/*.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-validator": "^7.2.1",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.5",
+    "mongodb-memory-server": "^10.1.4"
+  },
+  "devDependencies": {
+    "supertest": "^7.0.0"
+  }
+}
