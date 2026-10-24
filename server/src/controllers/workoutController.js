@@ -31,6 +31,44 @@ const updateSplit = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    // Validate custom split data when switching to custom
+    if (preferredSplit === 'custom' || customSplit) {
+      const splitData = customSplit || user.customSplit;
+
+      if (preferredSplit === 'custom' && splitData) {
+        // Validate routine name
+        if (!splitData.routineName || !splitData.routineName.trim()) {
+          return res.status(400).json({
+            success: false,
+            message: 'Custom routine name is required.',
+          });
+        }
+
+        // Validate at least one training day
+        if (!splitData.days || splitData.days.length === 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'At least one training day is required.',
+          });
+        }
+
+        // Validate each day
+        for (let i = 0; i < splitData.days.length; i++) {
+          const day = splitData.days[i];
+          if (!day.name || !day.name.trim()) {
+            return res.status(400).json({
+              success: false,
+              message: `Training day ${i + 1} must have a name.`,
+            });
+          }
+          // Filter out empty exercise entries
+          if (day.exercises) {
+            day.exercises = day.exercises.filter((ex) => ex && ex.trim());
+          }
+        }
+      }
+    }
+
     if (preferredSplit) {
       user.preferredSplit = preferredSplit;
     }

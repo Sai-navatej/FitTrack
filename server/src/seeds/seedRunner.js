@@ -1,4 +1,7 @@
-require('dotenv').config();
+const path = require('node:path');
+const dotenv = require('dotenv');
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 const { connectDB, disconnectDB } = require('../config/db');
 const Exercise = require('../models/Exercise');
 const { predefinedExercises } = require('./exerciseSeeds');

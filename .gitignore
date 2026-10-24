@@ -1,9 +1,10 @@
+@"
 node_modules/
+client/node_modules/
+server/node_modules/
 .env
-.DS_Store
+.env.*
+!.env.example
 dist/
-dist-ssr/
-*.local
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+coverage/
+"@ | Out-File -FilePath .gitignore -Encoding utf8

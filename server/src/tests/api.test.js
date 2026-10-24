@@ -1,8 +1,16 @@
+const dns = require('node:dns');
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+} catch (e) {}
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert');
+const path = require('node:path');
 const request = require('supertest');
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
+const dotenv = require('dotenv');
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 const { app } = require('../index');
 const { seedExercises } = require('../seeds/seedRunner');
 const Exercise = require('../models/Exercise');
@@ -16,13 +24,45 @@ let user2Id;
 describe('FitTrack API Comprehensive End-to-End Test Suite', () => {
   before(async () => {
     process.env.NODE_ENV = 'test';
-    mongoServer = await MongoMemoryServer.create();
-    const uri = mongoServer.getUri();
-    await mongoose.connect(uri);
+
+    let uri = process.env.TEST_MONGODB_URI;
+    if (!uri && process.env.MONGODB_URI) {
+      try {
+        const parsed = new URL(process.env.MONGODB_URI);
+        parsed.pathname = '/fittrack_test';
+        uri = parsed.toString();
+      } catch (err) {
+        uri = process.env.MONGODB_URI.replace(/\/[^/?]+(\?|$)/, '/fittrack_test$1');
+      }
+    }
+
+    if (uri && !process.env.USE_IN_MEMORY_DB) {
+      try {
+        console.log('Connecting test runner to isolated MongoDB Atlas test database (fittrack_test)...');
+        await mongoose.connect(uri, { serverSelectionTimeoutMS: 8000 });
+        console.log(`Connected test database: ${mongoose.connection.name}`);
+      } catch (connErr) {
+        console.warn('Could not connect to Atlas test database, falling back to MongoMemoryServer for tests:', connErr.message);
+        mongoServer = await MongoMemoryServer.create();
+        uri = mongoServer.getUri();
+        await mongoose.connect(uri);
+      }
+    } else {
+      mongoServer = await MongoMemoryServer.create();
+      uri = mongoServer.getUri();
+      await mongoose.connect(uri);
+    }
     await seedExercises();
   });
 
   after(async () => {
+    if (mongoose.connection && mongoose.connection.name === 'fittrack_test') {
+      try {
+        await mongoose.connection.dropDatabase();
+      } catch (err) {
+        console.warn('Could not drop test database:', err.message);
+      }
+    }
     await mongoose.disconnect();
     if (mongoServer) {
       await mongoServer.stop();
@@ -152,6 +192,131 @@ describe('FitTrack API Comprehensive End-to-End Test Suite', () => {
     assert.ok(res.body.predefinedSplits.ppl);
     assert.ok(res.body.predefinedSplits.upper_lower);
     assert.strictEqual(res.body.currentSplit, 'ppl');
+  });
+
+  // Custom Split Tests
+  test('PUT /api/workouts/splits should save a custom split with routine name, days, muscle groups, and exercises', async () => {
+    const res = await request(app)
+      .put('/api/workouts/splits')
+      .set('Authorization', `Bearer ${user1Token}`)
+      .send({
+        preferredSplit: 'custom',
+        customSplit: {
+          routineName: 'My PPL Variant',
+          days: [
+            {
+              name: 'Push Day',
+              muscleGroups: ['chest', 'shoulders', 'triceps'],
+              exercises: ['Barbell Bench Press', 'Shoulder Press', 'Triceps Pushdowns'],
+            },
+            {
+              name: 'Pull Day',
+              muscleGroups: ['back', 'biceps'],
+              exercises: ['Pull-ups', 'Dumbbell Bicep Curls'],
+            },
+            {
+              name: 'Leg Day',
+              muscleGroups: ['legs'],
+              exercises: ['Barbell Squats', 'Romanian Deadlifts'],
+            },
+          ],
+        },
+      });
+
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(res.body.success, true);
+    assert.strictEqual(res.body.preferredSplit, 'custom');
+    assert.strictEqual(res.body.customSplit.routineName, 'My PPL Variant');
+    assert.strictEqual(res.body.customSplit.days.length, 3);
+    assert.strictEqual(res.body.customSplit.days[0].name, 'Push Day');
+    assert.deepStrictEqual(res.body.customSplit.days[0].muscleGroups, ['chest', 'shoulders', 'triceps']);
+    assert.strictEqual(res.body.customSplit.days[0].exercises.length, 3);
+  });
+
+  test('GET /api/workouts/splits should return saved custom split after saving', async () => {
+    const res = await request(app)
+      .get('/api/workouts/splits')
+      .set('Authorization', `Bearer ${user1Token}`);
+
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(res.body.currentSplit, 'custom');
+    assert.ok(res.body.customSplit);
+    assert.strictEqual(res.body.customSplit.routineName, 'My PPL Variant');
+    assert.strictEqual(res.body.customSplit.days.length, 3);
+  });
+
+  test('GET /api/workouts/splits for user 2 should NOT contain user 1 custom split', async () => {
+    const res = await request(app)
+      .get('/api/workouts/splits')
+      .set('Authorization', `Bearer ${user2Token}`);
+
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(res.body.currentSplit, 'upper_lower');
+    // User 2 should have no custom split or an empty one
+    const hasCustomDays = res.body.customSplit && res.body.customSplit.days && res.body.customSplit.days.length > 0;
+    assert.strictEqual(hasCustomDays, false, 'User 2 must not see user 1 custom split data');
+  });
+
+  test('PUT /api/workouts/splits should reject custom split with empty routine name', async () => {
+    const res = await request(app)
+      .put('/api/workouts/splits')
+      .set('Authorization', `Bearer ${user2Token}`)
+      .send({
+        preferredSplit: 'custom',
+        customSplit: {
+          routineName: '',
+          days: [{ name: 'Day 1', muscleGroups: [], exercises: [] }],
+        },
+      });
+
+    assert.strictEqual(res.statusCode, 400);
+    assert.strictEqual(res.body.success, false);
+  });
+
+  test('PUT /api/workouts/splits should reject custom split with no days', async () => {
+    const res = await request(app)
+      .put('/api/workouts/splits')
+      .set('Authorization', `Bearer ${user2Token}`)
+      .send({
+        preferredSplit: 'custom',
+        customSplit: {
+          routineName: 'Empty Routine',
+          days: [],
+        },
+      });
+
+    assert.strictEqual(res.statusCode, 400);
+    assert.strictEqual(res.body.success, false);
+  });
+
+  test('PUT /api/workouts/splits should reject custom split with unnamed day', async () => {
+    const res = await request(app)
+      .put('/api/workouts/splits')
+      .set('Authorization', `Bearer ${user2Token}`)
+      .send({
+        preferredSplit: 'custom',
+        customSplit: {
+          routineName: 'Bad Routine',
+          days: [{ name: '', muscleGroups: [], exercises: [] }],
+        },
+      });
+
+    assert.strictEqual(res.statusCode, 400);
+    assert.strictEqual(res.body.success, false);
+  });
+
+  test('PUT /api/workouts/splits should allow switching back to predefined split without losing custom data', async () => {
+    const res = await request(app)
+      .put('/api/workouts/splits')
+      .set('Authorization', `Bearer ${user1Token}`)
+      .send({ preferredSplit: 'ppl' });
+
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(res.body.preferredSplit, 'ppl');
+    // Custom split data should still be persisted
+    assert.ok(res.body.customSplit);
+    assert.strictEqual(res.body.customSplit.routineName, 'My PPL Variant');
+    assert.strictEqual(res.body.customSplit.days.length, 3);
   });
 
   test('GET /api/exercises should return predefined exercises', async () => {

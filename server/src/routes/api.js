@@ -20,10 +20,15 @@ router.use('/weight', weightRoutes);
 router.use('/water', waterRoutes);
 router.use('/progress', progressRoutes);
 
-// Health check endpoint
+const { isDatabaseConnected } = require('../config/db');
+
+// Health check endpoint with real database status
 router.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'healthy',
+  const dbConnected = isDatabaseConnected();
+  const statusCode = dbConnected ? 200 : 503;
+  res.status(statusCode).json({
+    status: dbConnected ? 'healthy' : 'degraded',
+    database: dbConnected ? 'connected' : 'disconnected',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
   });

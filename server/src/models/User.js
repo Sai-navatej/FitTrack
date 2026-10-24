@@ -7,6 +7,11 @@ const customSplitDaySchema = new mongoose.Schema({
     required: true,
     trim: true,
   },
+  muscleGroups: [{
+    type: String,
+    trim: true,
+    lowercase: true,
+  }],
   exercises: [{
     type: String,
     trim: true,
@@ -68,6 +73,11 @@ const userSchema = new mongoose.Schema({
     default: 'ppl',
   },
   customSplit: {
+    routineName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     days: [customSplitDaySchema],
   },
   dailyCalorieTarget: {
